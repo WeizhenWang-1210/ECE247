@@ -212,6 +212,57 @@ class TDSConv2dBlock(nn.Module):
         # Layer norm over C
         return self.layer_norm(x)  # TNC
 
+class TDSAttnBlock(nn.Module):
+    """
+    
+    WIP
+
+    Args:
+        channels (int): Number of input and output channels. For an input of
+            shape (T, N, num_features), the invariant we want is
+            channels * width = num_features.
+        width (int): Input width. For an input of shape (T, N, num_features),
+            the invariant we want is channels * width = num_features.
+        kernel_width (int): The kernel size of the temporal convolution.
+    """
+
+    def __init__(self, channels: int, width: int, kernel_width: int) -> None:
+        super().__init__()
+        self.channels = channels
+        self.width = width
+
+        self.conv2d = nn.Conv2d(
+            in_channels=channels,
+            out_channels=channels,
+            kernel_size=(1, kernel_width),
+        )
+
+
+        self.attention = nn.TransformerEncoderLayer(d_model=channels, nhead=1)
+
+
+        self.relu = nn.ReLU()
+        self.layer_norm = nn.LayerNorm(channels * width)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        T_in, N, C = inputs.shape  # TNC
+
+        # TNC -> NCT -> NcwT
+        x = inputs.movedim(0, -1).reshape(N, self.channels, self.width, T_in)
+        x = self.conv2d(x)
+        x = self.relu(x)
+        x = x.reshape(N, C, -1).movedim(-1, 0)  # NcwT -> NCT -> TNC
+
+        # Skip connection after downsampling
+        T_out = x.shape[0]
+        x = x + inputs[-T_out:]
+
+        # Layer norm over C
+        return self.layer_norm(x)  # TNC
+
+
+
+
 
 class TDSFullyConnectedBlock(nn.Module):
     """A fully connected block as per "Sequence-to-Sequence Speech
@@ -278,3 +329,4 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+    
