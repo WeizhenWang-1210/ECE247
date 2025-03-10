@@ -213,52 +213,24 @@ class TDSConv2dBlock(nn.Module):
         return self.layer_norm(x)  # TNC
 
 class TDSAttnBlock(nn.Module):
-    """
-    
-    WIP
-
-    Args:
-        channels (int): Number of input and output channels. For an input of
-            shape (T, N, num_features), the invariant we want is
-            channels * width = num_features.
-        width (int): Input width. For an input of shape (T, N, num_features),
-            the invariant we want is channels * width = num_features.
-        kernel_width (int): The kernel size of the temporal convolution.
-    """
-
-    def __init__(self, channels: int, width: int, kernel_width: int) -> None:
+    def __init__(self, channels: int, width: int, num_heads: int = 8, num_layers: int = 2) -> None:
         super().__init__()
         self.channels = channels
         self.width = width
+        self.C = self.channels * self.width
 
-        self.conv2d = nn.Conv2d(
-            in_channels=channels,
-            out_channels=channels,
-            kernel_size=(1, kernel_width),
-        )
-
-
-        self.attention = nn.TransformerEncoderLayer(d_model=channels, nhead=1)
-
-
-        self.relu = nn.ReLU()
-        self.layer_norm = nn.LayerNorm(channels * width)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.C, nhead=num_heads, batch_first=True)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        T_in, N, C = inputs.shape  # TNC
+        # T_in, N, C = inputs.shape  # TNC
 
-        # TNC -> NCT -> NcwT
-        x = inputs.movedim(0, -1).reshape(N, self.channels, self.width, T_in)
-        x = self.conv2d(x)
-        x = self.relu(x)
-        x = x.reshape(N, C, -1).movedim(-1, 0)  # NcwT -> NCT -> TNC
-
-        # Skip connection after downsampling
-        T_out = x.shape[0]
-        x = x + inputs[-T_out:]
-
-        # Layer norm over C
-        return self.layer_norm(x)  # TNC
+        # TNC -> NTC
+        x = inputs.permute(1, 0, 2)
+        x = self.encoder(x)
+        # NCT -> TNC
+        x = x.permute(1, 0, 2) 
+        return x
 
 
 
@@ -329,4 +301,44 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+    
+    
+class TDSAttnEncoder(nn.Module):
+    """A time depth-separable convolutional encoder composing a sequence
+    of `TDSConv2dBlock` and `TDSFullyConnectedBlock` as per
+    "Sequence-to-Sequence Speech Recognition with Time-Depth Separable
+    Convolutions, Hannun et al" (https://arxiv.org/abs/1904.02619).
+
+    Args:
+        num_features (int): ``num_features`` for an input of shape
+            (T, N, num_features).
+        block_channels (list): A list of integers indicating the number
+            of channels per `TDSConv2dBlock`.
+        kernel_width (int): The kernel size of the temporal convolutions.
+    """
+
+    def __init__(
+        self,
+        num_features: int,
+        block_channels: Sequence[int] = (24, 24, 24, 24),
+        kernel_width: int = 32,
+    ) -> None:
+        super().__init__()
+
+        assert len(block_channels) > 0
+        tds_attn_blocks: list[nn.Module] = []
+        for channels in block_channels:
+            assert (
+                num_features % channels == 0
+            ), "block_channels must evenly divide num_features"
+            tds_attn_blocks.extend(
+                [
+                    TDSConv2dBlock(channels, num_features // channels),
+                    TDSFullyConnectedBlock(num_features),
+                ]
+            )
+        self.tds_attn_blocks = nn.Sequential(*tds_attn_blocks)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.tds_attn_blocks(inputs)  # (T, N, num_features)
     
