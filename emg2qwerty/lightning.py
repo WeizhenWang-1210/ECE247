@@ -279,7 +279,6 @@ class TDSAttnCTCModule(pl.LightningModule):
         in_features: int,
         mlp_features: Sequence[int],
         block_channels: Sequence[int],
-        kernel_width: int,
         optimizer: DictConfig,
         lr_scheduler: DictConfig,
         decoder: DictConfig,

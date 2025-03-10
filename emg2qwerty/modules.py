@@ -367,7 +367,7 @@ class TDSAttnEncoder(nn.Module):
             ), "block_channels must evenly divide num_features"
             tds_attn_blocks.extend(
                 [
-                    TDSConv2dBlock(channels, num_features // channels),
+                    TDSAttnBlock(channels, num_features // channels),
                     TDSFullyConnectedBlock(num_features),
                 ]
             )
