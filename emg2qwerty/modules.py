@@ -355,7 +355,7 @@ class TDSAttnEncoder(nn.Module):
         self,
         num_features: int,
         block_channels: Sequence[int] = (24, 24, 24, 24),
-        kernel_width: int = 32,
+       
     ) -> None:
         super().__init__()
 
