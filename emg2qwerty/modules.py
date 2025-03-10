@@ -232,6 +232,40 @@ class TDSAttnBlock(nn.Module):
         x = x.permute(1, 0, 2) 
         return x
 
+class TDSLSTMBlock(nn.Module):
+    """
+    
+    #TODO add LSTM block
+
+    Args:
+        channels (int): Number of input and output channels. For an input of
+            shape (T, N, num_features), the invariant we want is
+            channels * width = num_features.
+        width (int): Input width. For an input of shape (T, N, num_features),
+            the invariant we want is channels * width = num_features.
+        kernel_width (int): The kernel size of the temporal convolution.
+    """
+
+    def __init__(self, channels: int, width: int, kernel_width: int) -> None:
+        super().__init__()
+        self.channels = channels
+        self.width = width
+        self.C = self.channels * self.width
+
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.C, nhead=num_heads, batch_first=True)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        # T_in, N, C = inputs.shape  # TNC
+
+        # TNC -> NTC
+        x = inputs.permute(1, 0, 2)
+        x = self.encoder(x)
+        # NCT -> TNC
+        x = x.permute(1, 0, 2) 
+        return x
+
+
 
 
 
