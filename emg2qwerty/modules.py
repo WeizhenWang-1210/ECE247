@@ -213,24 +213,28 @@ class TDSConv2dBlock(nn.Module):
         return self.layer_norm(x)  # TNC
 
 class TDSAttnBlock(nn.Module):
-    def __init__(self, channels: int, width: int, num_heads: int = 8, num_layers: int = 2) -> None:
+    def __init__(self, channels: int, width: int, num_heads: int = 16, num_layers: int = 1) -> None:
         super().__init__()
         self.channels = channels
         self.width = width
         self.C = self.channels * self.width
-
-        encoder_layer = nn.TransformerEncoderLayer(d_model=self.C, nhead=num_heads, batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.C, nhead=num_heads, dim_feedforward=2048, batch_first=True)
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.layernorm = nn.LayerNorm(self.C)
+        
+       
+
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        # T_in, N, C = inputs.shape  # TNC
+   
+        #T_in, N, C = inputs.shape  # TNC
 
         # TNC -> NTC
         x = inputs.permute(1, 0, 2)
         x = self.encoder(x)
         # NCT -> TNC
-        x = x.permute(1, 0, 2) 
-        return x
+        x = x.permute(1, 0, 2)   
+        return self.layernorm(x)
 
 class TDSLSTMBlock(nn.Module):
     """
@@ -355,22 +359,23 @@ class TDSAttnEncoder(nn.Module):
         self,
         num_features: int,
         block_channels: Sequence[int] = (24, 24, 24, 24),
-       
+        kernel_width: int = 32,
     ) -> None:
         super().__init__()
 
         assert len(block_channels) > 0
-        tds_attn_blocks: list[nn.Module] = []
+        tds_attn_blocks: list[nn.Module] = []#[TDSAttnBlock(block_channels[0], num_features // block_channels[0])]
         for channels in block_channels:
             assert (
                 num_features % channels == 0
             ), "block_channels must evenly divide num_features"
             tds_attn_blocks.extend(
                 [
-                    TDSAttnBlock(channels, num_features // channels),
+                    TDSConv2dBlock(channels, num_features // channels, kernel_width),
                     TDSFullyConnectedBlock(num_features),
                 ]
             )
+        tds_attn_blocks.append(TDSAttnBlock(block_channels[-1], num_features // block_channels[-1]))
         self.tds_attn_blocks = nn.Sequential(*tds_attn_blocks)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
