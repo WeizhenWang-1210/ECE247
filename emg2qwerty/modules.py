@@ -218,7 +218,7 @@ class TDSAttnBlock(nn.Module):
         self.channels = channels
         self.width = width
         self.C = self.channels * self.width
-        encoder_layer = nn.TransformerEncoderLayer(d_model=self.C, nhead=num_heads, dim_feedforward=2048, batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.C, nhead=num_heads, dim_feedforward=1024, batch_first=True)
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.layernorm = nn.LayerNorm(self.C)
         
