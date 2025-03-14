@@ -213,12 +213,12 @@ class TDSConv2dBlock(nn.Module):
         return self.layer_norm(x)  # TNC
 
 class TDSAttnBlock(nn.Module):
-    def __init__(self, channels: int, width: int, num_heads: int = 16, num_layers: int = 1) -> None:
+    def __init__(self, channels: int, width: int, num_heads: int = 16, num_layers: int = 2) -> None:
         super().__init__()
         self.channels = channels
         self.width = width
         self.C = self.channels * self.width
-        encoder_layer = nn.TransformerEncoderLayer(d_model=self.C, nhead=num_heads, dim_feedforward=3072, batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.C, nhead=num_heads, dim_feedforward=1024, batch_first=True)
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.layernorm = nn.LayerNorm(self.C)
         
