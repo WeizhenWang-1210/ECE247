@@ -9,6 +9,9 @@ from collections.abc import Sequence
 import torch
 from torch import nn
 
+import torch
+import torch.nn as nn
+from transformers import AutoModelForCausalLM, AutoConfig
 
 class SpectrogramNorm(nn.Module):
     """A `torch.nn.Module` that applies 2D batch normalization over spectrogram
@@ -550,3 +553,57 @@ class TDSCNNLSTMEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.cnn_lstm_blocks(inputs)  # (T, N, num_features)
+
+
+class LLMEncoder(nn.Module):
+    def __init__(self, model_name: str, feature_dim: int, output_dim: int):
+        super().__init__()
+        # Load pre-trained LLM (decoder-only model without modifications)
+        self.llm = AutoModelForCausalLM.from_pretrained(model_name)  # e.g. 'meta-llama/Llama-2-7b-hf'
+        # We will use the internal transformer backbone and not the LM head for our outputs
+        self.transformer = self.llm.model  # the inner PreTrainedModel (e.g., LLaMA model without final LM projection)
+        hidden_size = self.transformer.config.hidden_size  # LLM embedding dimension
+        
+        # Freeze all LLM parameters by default to preserve pre-trained knowledge
+        for param in self.transformer.parameters():
+            param.requires_grad = False
+        
+        # Initialize our feature->embedding projection layer
+        self.input_proj = nn.Linear(feature_dim, hidden_size)
+        # (Optionally, initialize weights in a suitable range; e.g., xavier or small normal for stability)
+        
+        # Initialize an output prediction layer: hidden -> output_dim (number of keys or classes)
+        self.output_proj = nn.Linear(hidden_size, output_dim)
+        
+        # Mark the new layers as trainable (they are by default requires_grad=True).
+        # If desired, unfreeze some LLM layers:
+        # e.g., unfreeze first transformer block or embedding matrix (for additional adaptation)
+        # and last block for task-specific tuning:
+        # Unfreeze embedding matrix (might not be used if we pass inputs_embeds, but just in case):
+        for param in self.transformer.embed_tokens.parameters():
+            param.requires_grad = True
+        # Unfreeze the final transformer block:
+        for param in self.transformer.layers[-1].parameters():
+            param.requires_grad = True
+        # (Above unfreezing is optional; you can also leave the entire transformer frozen except our new layers.)
+    
+    def forward(self, x):
+        # x is expected shape (T, N, feature_dim) as per existing architecture
+        # Permute to (batch, seq, feature) = (N, T, F)
+        x = x.permute(1, 0, 2)
+        # Project features to LLM hidden dimension
+        # resulting shape: (batch, seq, hidden_size)
+        inputs_embeds = self.input_proj(x)
+        
+        # Pass the embeddings through the LLM's transformer. 
+        # We use the transformer in "evaluation" mode (it’s been pre-trained) but still get gradients for our unfrozen parts.
+        outputs = self.transformer(inputs_embeds=inputs_embeds, use_cache=False)
+        # outputs.last_hidden_state: (batch, seq, hidden_size)
+        hidden_seq = outputs.last_hidden_state
+        
+        # Apply output projection to get class logits at each time step
+        logits = self.output_proj(hidden_seq)   # shape: (batch, seq, output_dim)
+        
+        # Permute back to (T, N, output_dim) if needed by downstream components
+        logits = logits.permute(1, 0, 2)
+        return logits
