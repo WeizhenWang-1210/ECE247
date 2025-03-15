@@ -5,9 +5,8 @@ module:
   block_channels: [24, 24, 24, 24]
   hidden_size: 128  # LSTM hidden state size
   mlp_features: [384]
-  # No kernel_width as this is pure LSTM-based
 
 datamodule:
   _target_: emg2qwerty.lightning.WindowedEMGDataModule
-  window_length: 8000  # 4 sec windows for 2kHz EMG
+  window_length: 8000  
   padding: [1800, 200]  # 900ms past context, 100ms future context

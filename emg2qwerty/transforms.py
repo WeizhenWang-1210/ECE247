@@ -252,12 +252,10 @@ class GaussianNoise:
         self.std = std
 
     def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
-        # Assume tensor shape is (C, T) or (channels, time_length)
-        # Generate noise for one channel (T length) and repeat across channels
         noise = torch.randn(tensor.shape[-1]) * self.std + self.mean
-        noise = noise.to(tensor.device)  # match device/dtype if needed
+        noise = noise.to(tensor.device)  
         if tensor.ndim == 2:  
-            # tensor shape (C, T): repeat noise for each channel
+
             noise = noise.unsqueeze(0).expand_as(tensor)
         return tensor + noise
     
@@ -271,6 +269,5 @@ class RandomAmplitudeScaling:
         self.max_factor = max_factor
 
     def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
-        # Sample a random scaling factor in [min_factor, max_factor]
         scale = random.uniform(self.min_factor, self.max_factor)
         return tensor * scale

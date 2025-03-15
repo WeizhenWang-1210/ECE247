@@ -3,8 +3,8 @@ module:
   _target_: emg2qwerty.lightning.LLMCTCModule
   in_features: 528              # freq * channels = (n_fft // 2 + 1) * 16
   mlp_features: [384]
-  llm_model_name: "Qwen/Qwen2.5-0.5B"  # or your chosen HF model
-  llm_hidden_size: 4096         # depends on LLaMA variant
+  llm_model_name: "Qwen/Qwen2.5-0.5B" 
+  llm_hidden_size: 4096       
 
 datamodule:
   _target_: emg2qwerty.lightning.WindowedEMGDataModule

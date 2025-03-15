@@ -269,8 +269,6 @@ class TDSCNNLSTMBlock(nn.Module):
         )
         self.relu = nn.ReLU()
         
-        # LSTM layer for sequence modeling
-        # Input shape after conv: (T_out, N, channels * width)
         self.lstm = nn.LSTM(
             input_size=channels * width,
             hidden_size=self.hidden_size,
@@ -278,38 +276,32 @@ class TDSCNNLSTMBlock(nn.Module):
             bidirectional=True  # Bidirectional for better context
         )
         
-        # Project bidirectional LSTM output back to original feature size
         self.proj = nn.Linear(self.hidden_size * 2, channels * width)
         
-        # Layer normalization for the final output
         self.layer_norm = nn.LayerNorm(channels * width)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        T_in, N, C = inputs.shape  # TNC (Time, Batch, Features)
+        T_in, N, C = inputs.shape  
 
-        # 1. Apply temporal convolution (same as TDSConv2dBlock)
-        # TNC -> NCT -> NcwT (Batch, Channels, Width, Time)
         x = inputs.movedim(0, -1).reshape(N, self.channels, self.width, T_in)
         x = self.conv2d(x)
         x = self.relu(x)
-        x = x.reshape(N, C, -1).movedim(-1, 0)  # NcwT -> NCT -> TNC
+        x = x.reshape(N, C, -1).movedim(-1, 0) 
 
-        # Keep track of the new time dimension after convolution
         T_out = x.shape[0]
+
+        lstm_out, _ = self.lstm(x)  
         
-        # 2. Apply bidirectional LSTM
-        lstm_out, _ = self.lstm(x)  # TNC -> TNC (but with hidden_size*2 features)
+
+        lstm_out = self.proj(lstm_out) 
         
-        # 3. Project back to original feature size
-        lstm_out = self.proj(lstm_out)  # TNC -> TNC (original size)
-        
-        # 4. Skip connection (add the output of temporal convolution)
+
         x = lstm_out + x
         
-        # 5. Skip connection with original input (after accounting for time dimension change)
+
         x = x + inputs[-T_out:]
         
-        # 6. Layer normalization
+
         return self.layer_norm(x)  # TNC
 
 class TDSLSTMBlock(nn.Module):
@@ -334,7 +326,7 @@ class TDSLSTMBlock(nn.Module):
         self.num_features = channels * width
         self.hidden_size = hidden_size if hidden_size is not None else channels
         
-        # LSTM layer for sequence modeling
+
         self.lstm = nn.LSTM(
             input_size=self.num_features,
             hidden_size=self.hidden_size,
@@ -342,26 +334,26 @@ class TDSLSTMBlock(nn.Module):
             bidirectional=True  # Bidirectional for better context
         )
         
-        # Project bidirectional LSTM output back to original feature size
+
         self.proj = nn.Linear(self.hidden_size * 2, self.num_features)
         
-        # Layer normalization for the final output
+
         self.layer_norm = nn.LayerNorm(self.num_features)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        T_in, N, C = inputs.shape  # TNC
+        T_in, N, C = inputs.shape  
         assert C == self.num_features, f"Expected {self.num_features} features, got {C}"
         
-        # Apply bidirectional LSTM directly to input
-        lstm_out, _ = self.lstm(inputs)  # TNC -> TNC (but with hidden_size*2 features)
+
+        lstm_out, _ = self.lstm(inputs)  
         
-        # Project back to original feature size
-        x = self.proj(lstm_out)  # TNC -> TNC (original size)
+
+        x = self.proj(lstm_out)  
         
-        # Skip connection
+
         x = x + inputs
         
-        # Layer normalization
+
         return self.layer_norm(x)  # TNC
 
 
@@ -502,7 +494,6 @@ class TDSLSTMEncoder(nn.Module):
                 num_features % channels == 0
             ), "block_channels must evenly divide num_features"
             
-            # For each block, create a TDSLSTMBlock
             width = num_features // channels
             
             tds_lstm_blocks.extend(
@@ -563,52 +554,40 @@ class TDSCNNLSTMEncoder(nn.Module):
 class LLMEncoder(nn.Module):
     def __init__(self, model_name: str, feature_dim: int, output_dim: int):
         super().__init__()
-        # Load pre-trained LLM (decoder-only model without modifications)
-        self.llm = AutoModelForCausalLM.from_pretrained(model_name)  # e.g. 'meta-llama/Llama-2-7b-hf'
-        # We will use the internal transformer backbone and not the LM head for our outputs
-        self.transformer = self.llm.model  # the inner PreTrainedModel (e.g., LLaMA model without final LM projection)
-        hidden_size = self.transformer.config.hidden_size  # LLM embedding dimension
+
+        self.llm = AutoModelForCausalLM.from_pretrained(model_name)  
+
+        self.transformer = self.llm.model 
+        hidden_size = self.transformer.config.hidden_size  
         
-        # Freeze all LLM parameters by default to preserve pre-trained knowledge
         for param in self.transformer.parameters():
             param.requires_grad = False
         
-        # Initialize our feature->embedding projection layer
+
         self.input_proj = nn.Linear(feature_dim, hidden_size)
-        # (Optionally, initialize weights in a suitable range; e.g., xavier or small normal for stability)
+
         
-        # Initialize an output prediction layer: hidden -> output_dim (number of keys or classes)
+
         self.output_proj = nn.Linear(hidden_size, output_dim)
         
-        # Mark the new layers as trainable (they are by default requires_grad=True).
-        # If desired, unfreeze some LLM layers:
-        # e.g., unfreeze first transformer block or embedding matrix (for additional adaptation)
-        # and last block for task-specific tuning:
-        # Unfreeze embedding matrix (might not be used if we pass inputs_embeds, but just in case):
         for param in self.transformer.embed_tokens.parameters():
             param.requires_grad = True
-        # Unfreeze the final transformer block:
         for param in self.transformer.layers[-1].parameters():
             param.requires_grad = True
-        # (Above unfreezing is optional; you can also leave the entire transformer frozen except our new layers.)
     
     def forward(self, x):
-        # x is expected shape (T, N, feature_dim) as per existing architecture
-        # Permute to (batch, seq, feature) = (N, T, F)
+
         x = x.permute(1, 0, 2)
-        # Project features to LLM hidden dimension
-        # resulting shape: (batch, seq, hidden_size)
+
         inputs_embeds = self.input_proj(x)
         
-        # Pass the embeddings through the LLM's transformer. 
-        # We use the transformer in "evaluation" mode (it’s been pre-trained) but still get gradients for our unfrozen parts.
+
         outputs = self.transformer(inputs_embeds=inputs_embeds, use_cache=False)
-        # outputs.last_hidden_state: (batch, seq, hidden_size)
+
         hidden_seq = outputs.last_hidden_state
         
-        # Apply output projection to get class logits at each time step
-        logits = self.output_proj(hidden_seq)   # shape: (batch, seq, output_dim)
+        logits = self.output_proj(hidden_seq)   
         
-        # Permute back to (T, N, output_dim) if needed by downstream components
+
         logits = logits.permute(1, 0, 2)
         return logits
