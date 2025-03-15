@@ -11,7 +11,7 @@ from typing import Any, TypeVar
 import numpy as np
 import torch
 import torchaudio
-
+import random
 
 TTransformIn = TypeVar("TTransformIn")
 TTransformOut = TypeVar("TTransformOut")
@@ -243,3 +243,34 @@ class SpecAugment:
 
         # (..., C, freq, T) -> (T, ..., C, freq)
         return x.movedim(-1, 0)
+
+@dataclass
+class GaussianNoise:
+    def __init__(self, mean: float = 0.0, std: float = 1.0):
+        """Add Gaussian noise with given mean and std to the signal."""
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        # Assume tensor shape is (C, T) or (channels, time_length)
+        # Generate noise for one channel (T length) and repeat across channels
+        noise = torch.randn(tensor.shape[-1]) * self.std + self.mean
+        noise = noise.to(tensor.device)  # match device/dtype if needed
+        if tensor.ndim == 2:  
+            # tensor shape (C, T): repeat noise for each channel
+            noise = noise.unsqueeze(0).expand_as(tensor)
+        return tensor + noise
+    
+class RandomAmplitudeScaling:
+    def __init__(self, min_factor: float = 0.8, max_factor: float = 1.2):
+        """
+        Randomly scale the signal's amplitude to simulate amplitude variations.
+        min_factor and max_factor define the range for the scaling factor.
+        """
+        self.min_factor = min_factor
+        self.max_factor = max_factor
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        # Sample a random scaling factor in [min_factor, max_factor]
+        scale = random.uniform(self.min_factor, self.max_factor)
+        return tensor * scale

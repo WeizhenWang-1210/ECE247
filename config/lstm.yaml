@@ -1,6 +1,6 @@
 defaults:
   - user: single_user
-  - transforms: log_spectrogram
+  - transforms: log_spectrogram_amplitude
   - model: tds_lstm_ctc
   - optimizer: adam
   - lr_scheduler: linear_warmup_cosine_annealing
